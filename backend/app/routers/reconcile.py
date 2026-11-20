@@ -1,7 +1,7 @@
 from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from app.db import connect
+from app.db import connect, read_snapshot
 from app.services import reconcile_service as svc
 
 router = APIRouter(tags=["reconcile"])
@@ -57,13 +57,21 @@ def batches(dock_day: str | None = None):
 
 
 @router.get("/reconcile/matches")
-def matches(batch_id: int):
+def matches(batch_id: int, bucket: str | None = None):
     conn = connect()
     try:
-        rows = conn.execute(
-            "SELECT * FROM match_rows WHERE batch_id=? ORDER BY supplier_code, sku", (batch_id,)
-        ).fetchall()
-        return [dict(r) for r in rows]
+        with read_snapshot(conn):
+            if bucket:
+                rows = conn.execute(
+                    "SELECT * FROM match_rows WHERE batch_id=? AND bucket=? ORDER BY supplier_code, sku",
+                    (batch_id, bucket),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM match_rows WHERE batch_id=? ORDER BY supplier_code, sku",
+                    (batch_id,),
+                ).fetchall()
+            return [dict(r) for r in rows]
     finally:
         conn.close()
 
@@ -72,17 +80,18 @@ def matches(batch_id: int):
 def variances(batch_id: int | None = None, dock_day: str | None = None):
     conn = connect()
     try:
-        if batch_id is not None:
-            rows = conn.execute(
-                "SELECT * FROM variance_rows WHERE batch_id=? ORDER BY id", (batch_id,)
-            ).fetchall()
-        elif dock_day:
-            rows = conn.execute(
-                "SELECT * FROM variance_rows WHERE dock_day=? ORDER BY id", (dock_day,)
-            ).fetchall()
-        else:
-            rows = conn.execute("SELECT * FROM variance_rows ORDER BY id DESC").fetchall()
-        return [dict(r) for r in rows]
+        with read_snapshot(conn):
+            if batch_id is not None:
+                rows = conn.execute(
+                    "SELECT * FROM variance_rows WHERE batch_id=? ORDER BY id", (batch_id,)
+                ).fetchall()
+            elif dock_day:
+                rows = conn.execute(
+                    "SELECT * FROM variance_rows WHERE dock_day=? ORDER BY id", (dock_day,)
+                ).fetchall()
+            else:
+                rows = conn.execute("SELECT * FROM variance_rows ORDER BY id DESC").fetchall()
+            return [dict(r) for r in rows]
     finally:
         conn.close()
 
